@@ -1,0 +1,40 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/smartplate}
+    username: ${SPRING_DATASOURCE_USERNAME:smartplate}
+    password: ${SPRING_DATASOURCE_PASSWORD:smartplate}
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 3000
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+
+  data:
+    redis:
+      host: ${SPRING_REDIS_HOST:localhost}
+      port: ${SPRING_REDIS_PORT:6379}
+      timeout: 500ms
+      lettuce:
+        pool:
+          max-active: 20
+    repositories:
+      enabled: false
+
+  jackson:
+    default-property-inclusion: non_null
+    property-naming-strategy: SNAKE_CASE
+
+server:
+  port: 8080
+  compression:
+    enabled: true
+
+logging:
+  level:
+    com.smartplate: INFO
+    org.springframework.data.redis: WARN
+jwt:
+  secret: smartplate-secret-key-change-in-production-min-32-chars
