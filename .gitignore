@@ -1,8 +1,38 @@
 HELP.md
+
+# macOS
+.DS_Store
+
+# Maven
 target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Local Spring configs
+application-local.properties
+application-local.yml
+application-dev.properties
+application-dev.yml
+application-prod.properties
+application-prod.yml
+
+# Secrets & credentials
+secrets/
+secret/
+credentials/
+credentials.json
+secrets.json
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
 
 ### STS ###
 .apt_generated
@@ -14,7 +44,7 @@ target/
 .sts4-cache
 
 ### IntelliJ IDEA ###
-.idea
+.idea/
 *.iws
 *.iml
 *.ipr
@@ -31,3 +61,24 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Logs
+logs/
+*.log
+
+# Docker local overrides
+docker-compose.override.yml
+
+# Frontend
+node_modules/
+.next/
+.cache/
+coverage/
+
+# Temp files
+tmp/
+temp/
+*.tmp
+
+# Windows
+Thumbs.db
