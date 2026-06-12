@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { Sparkles, RefreshCw, Heart } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { getForYou, postEvent, currentDaypart, daypartLabel, type MenuItem } from "@/lib/api"
+import { getForYou, postEvent, getFavorites, currentDaypart, daypartLabel, SCHOOL_ID_TO_DB_ID, type MenuItem } from "@/lib/api"
 import { getUserId } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
@@ -23,12 +23,20 @@ export default function ForYouPage() {
   const [loading, setLoading] = useState(true)
   const [favorites, setFavorites] = useState<Set<number>>(new Set())
 
+  // Hydrate favorites from the server once on mount
+  useEffect(() => {
+    getFavorites()
+      .then((ids) => setFavorites(new Set(ids)))
+      .catch(() => {})
+  }, [])
+
   const fetchForYou = useCallback(async () => {
     setLoading(true)
+    const dbHallId = SCHOOL_ID_TO_DB_ID[selectedHall.schoolId] ?? 1
     try {
-      const data = await getForYou(getUserId(), selectedHall.schoolId, daypart, 10)
+      const data = await getForYou(getUserId(), dbHallId, daypart, 10)
       setItems(data)
-      data.forEach((item) => postEvent(getUserId(), item.id, selectedHall.schoolId, "view"))
+      data.forEach((item) => postEvent(getUserId(), item.id, dbHallId, "view"))
     } catch {
       setItems([])
     } finally {
@@ -43,13 +51,14 @@ export default function ForYouPage() {
   }, [fetchForYou])
 
   const handleFavorite = async (item: MenuItem) => {
+    const dbHallId = SCHOOL_ID_TO_DB_ID[selectedHall.schoolId] ?? 1
     const next = new Set(favorites)
     if (next.has(item.id)) {
       next.delete(item.id)
-      await postEvent(getUserId(), item.id, selectedHall.schoolId, "click")
+      await postEvent(getUserId(), item.id, dbHallId, "unfavorite")
     } else {
       next.add(item.id)
-      await postEvent(getUserId(), item.id, selectedHall.schoolId, "favorite")
+      await postEvent(getUserId(), item.id, dbHallId, "favorite")
     }
     setFavorites(next)
   }

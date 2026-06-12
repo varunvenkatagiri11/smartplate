@@ -224,7 +224,7 @@ public class RecommendationService {
         params.add(LocalDate.now().toString());
         params.add(hallId);
         return jdbc.queryForList(
-            "SELECT item_id::text FROM menu_availability WHERE item_id IN (" + placeholders
+            "SELECT item_id::text FROM menu_availability WHERE item_id::text IN (" + placeholders
             + ") AND available_date = ?::date AND dining_hall_id = ?",
             String.class, params.toArray());
     }
@@ -307,9 +307,12 @@ public class RecommendationService {
                            mi.g_fat, mi.g_fiber, mi.is_vegan, mi.is_meatless,
                            mi.is_halal, mi.is_gluten_friendly
                     FROM menu_items mi
-                    LEFT JOIN menu_availability ma ON ma.item_id = mi.id AND ma.dining_hall_id = ?
+                    LEFT JOIN menu_availability ma ON ma.item_id = mi.id
+                        AND ma.dining_hall_id = ?
+                        AND ma.available_date = CURRENT_DATE
                     LEFT JOIN stations s ON s.id = ma.station_id
                     WHERE mi.id = ?
+                    LIMIT 1
                     """, hallId, Integer.parseInt(id));
                 result.add(row);
             } catch (Exception e) {

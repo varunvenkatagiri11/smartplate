@@ -8,6 +8,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Map;
 
 /**
@@ -55,11 +56,11 @@ public class EventIngestionService {
     private final JdbcTemplate jdbc;
 
     public record IngestRequest(
-        int userId,
-        int itemId,
-        int diningHallId,
-        String eventType,   // "view" | "click" | "rate" | "favorite"
-        Float ratingValue   // only for eventType="rate", else null
+        @JsonProperty("userId")      int userId,
+        @JsonProperty("itemId")      int itemId,
+        @JsonProperty("diningHallId") int diningHallId,
+        @JsonProperty("eventType")   String eventType,
+        @JsonProperty("ratingValue") Float ratingValue
     ) {}
 
     /**
@@ -98,7 +99,7 @@ public class EventIngestionService {
     }
 
     private void validateEventType(String eventType) {
-        if (!java.util.Set.of("view", "click", "rate", "favorite").contains(eventType)) {
+        if (!java.util.Set.of("view", "click", "rate", "favorite", "unfavorite").contains(eventType)) {
             throw new IllegalArgumentException("Unknown event type: " + eventType);
         }
     }

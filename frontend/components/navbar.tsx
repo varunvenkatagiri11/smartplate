@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import { TrendingUp, Sparkles, UtensilsCrossed, LogIn, LogOut, User } from "lucide-react"
+import { TrendingUp, Sparkles, UtensilsCrossed, LogIn, LogOut, User, Heart } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getUser, logout, isLoggedIn } from "@/lib/auth"
 
@@ -30,6 +30,7 @@ export function Navbar() {
     { href: "/", label: "Menu", icon: UtensilsCrossed },
     { href: "/trending", label: "Trending", icon: TrendingUp },
     { href: "/foryou", label: "For You", icon: Sparkles },
+    ...(user ? [{ href: "/favorites", label: "Favorites", icon: Heart }] : []),
   ]
 
   return (
@@ -65,10 +66,13 @@ export function Navbar() {
           {user ? (
             // Logged in — show email and logout button
             <>
-              <div className="flex items-center gap-1.5 text-sm text-gray-600">
+              <Link
+                href="/favorites"
+                className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+              >
                 <User className="w-4 h-4" />
                 <span className="hidden sm:block">{user.email}</span>
-              </div>
+              </Link>
               <button
                 onClick={handleLogout}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm text-gray-600 hover:bg-gray-100 transition-colors"

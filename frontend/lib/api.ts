@@ -178,11 +178,26 @@ export async function getSimilar(
   return data
 }
 
+export async function getFavoriteItems(): Promise<MenuItem[]> {
+  const { data } = await client.get("/v1/users/me/favorites/items")
+  return data as MenuItem[]
+}
+
+export async function getFavorites(): Promise<number[]> {
+  const { data } = await client.get("/v1/users/me/favorites")
+  return data.itemIds as number[]
+}
+
+export async function getRatings(): Promise<Record<number, number>> {
+  const { data } = await client.get("/v1/users/me/ratings")
+  return data.ratings as Record<number, number>
+}
+
 export async function postEvent(
   userId: number,
   itemId: number,
   diningHallId: number,
-  eventType: "view" | "click" | "rate" | "favorite",
+  eventType: "view" | "click" | "rate" | "favorite" | "unfavorite",
   ratingValue?: number
 ): Promise<void> {
   await client.post("/v1/events", {

@@ -6,7 +6,7 @@ import { ChevronLeft, Search, Filter, Heart } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { getMenu, postEvent, HALL_SLUG_TO_ID, SCHOOL_ID_TO_DB_ID, type MenuItem } from "@/lib/api"
+import { getMenu, postEvent, getFavorites, HALL_SLUG_TO_ID, SCHOOL_ID_TO_DB_ID, type MenuItem } from "@/lib/api"
 import { getUserId } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
@@ -57,6 +57,13 @@ export default function DiningHallPage({
    */
   const [favorites, setFavorites] = useState<Set<number>>(new Set())
 
+  // Hydrate favorites from the server once on mount
+  useEffect(() => {
+    getFavorites()
+      .then((ids) => setFavorites(new Set(ids)))
+      .catch(() => {})
+  }, [])
+
   const fetchItems = useCallback(async () => {
     if (!schoolId) return
     setLoading(true)
@@ -100,7 +107,7 @@ export default function DiningHallPage({
       const next = new Set(prev)
       if (next.has(item.id)) {
         next.delete(item.id)
-        postEvent(userId, item.id, dbHallId, "click").catch(() => {})
+        postEvent(userId, item.id, dbHallId, "unfavorite").catch(() => {})
       } else {
         next.add(item.id)
         postEvent(userId, item.id, dbHallId, "favorite").catch(() => {})

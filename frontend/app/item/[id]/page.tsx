@@ -17,7 +17,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { ChevronLeft, Heart, Star, Users } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { getSimilar, postEvent, type MenuItem } from "@/lib/api"
+import { getSimilar, postEvent, getFavorites, getRatings, SCHOOL_ID_TO_DB_ID, type MenuItem } from "@/lib/api"
 import { getUserId } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
@@ -58,6 +58,7 @@ export default function ItemDetailPage({
    * Format: /item/160?hallId=44401&name=Grilled+Chicken&calories=320...
    */
   const hallId = Number(searchParams.get("hallId") ?? 44401)
+  const dbHallId = SCHOOL_ID_TO_DB_ID[hallId] ?? 1
   const itemId = Number(id)
 
   // ── State ──────────────────────────────────────────────────────────────
@@ -113,14 +114,20 @@ export default function ItemDetailPage({
    * 2. Load similar items from the co-occurrence sorted set
    */
   useEffect(() => {
-    // Tell the backend the user viewed this item
-    // This feeds into the trending scores and session history
-    postEvent(getUserId(), itemId, hallId, "view")
+    postEvent(getUserId(), itemId, dbHallId, "view")
 
-    // Load "People Also Ate" from GET /api/v1/recommendations/similar
     getSimilar(itemId, hallId, 6)
       .then(setSimilar)
       .catch(() => setSimilar([]))
+
+    // Hydrate favorite and rating state from the server
+    getFavorites()
+      .then((ids) => setFavorited(ids.includes(itemId)))
+      .catch(() => {})
+
+    getRatings()
+      .then((map) => { if (map[itemId] != null) setRating(map[itemId]) })
+      .catch(() => {})
   }, [itemId, hallId])
 
   // ── Handlers ───────────────────────────────────────────────────────────
@@ -134,7 +141,7 @@ export default function ItemDetailPage({
    */
   const handleRate = async (stars: number) => {
     setRating(stars)
-    await postEvent(getUserId(), itemId, hallId, "rate", stars)
+    await postEvent(getUserId(), itemId, dbHallId, "rate", stars)
   }
 
   /**
@@ -146,7 +153,7 @@ export default function ItemDetailPage({
   const handleFavorite = async () => {
     const next = !favorited
     setFavorited(next)
-    await postEvent(getUserId(), itemId, hallId, next ? "favorite" : "click")
+    await postEvent(getUserId(), itemId, dbHallId, next ? "favorite" : "unfavorite")
   }
 
   // ── Nutrition rows ─────────────────────────────────────────────────────
@@ -367,7 +374,7 @@ export default function ItemDetailPage({
                   key={s.id}
                   onClick={() => {
                     // Fire click event for the similar item
-                    postEvent(getUserId(), s.id, hallId, "click")
+                    postEvent(getUserId(), s.id, dbHallId, "click")
                     // Navigate to that item's detail page
                     const params = new URLSearchParams({
                       hallId: String(hallId),

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { TrendingUp, RefreshCw } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { getTrending, postEvent, currentDaypart, daypartLabel, type TrendingItem } from "@/lib/api"
+import { getTrending, postEvent, currentDaypart, daypartLabel, SCHOOL_ID_TO_DB_ID, type TrendingItem } from "@/lib/api"
 import { getUserId } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
@@ -25,12 +25,12 @@ export default function TrendingPage() {
 
   const fetchTrending = useCallback(async () => {
     setLoading(true)
+    const dbHallId = SCHOOL_ID_TO_DB_ID[selectedHall.schoolId] ?? 1
     try {
-      const data = await getTrending(selectedHall.schoolId, daypart, 10)
+      const data = await getTrending(dbHallId, daypart, 10)
       setItems(data)
       setLastUpdated(new Date())
-      // Fire view events
-      data.forEach((item) => postEvent(getUserId(), item.id, selectedHall.schoolId, "view"))
+      data.forEach((item) => postEvent(getUserId(), item.id, dbHallId, "view"))
     } catch {
       setItems([])
     } finally {
