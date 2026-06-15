@@ -46,7 +46,7 @@ public class EventController {
             req.ratingValue()
         );
 
-        String entryId = eventService.ingest(authReq);
-        return ResponseEntity.ok(Map.of("status", "ok", "streamId", entryId));
+        eventService.ingest(authReq);
+        return ResponseEntity.ok(Map.of("status", "ok"));
     }
 }
