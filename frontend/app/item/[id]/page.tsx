@@ -90,6 +90,7 @@ export default function ItemDetailPage({
     contains_fish: searchParams.get("fish") === "true",
     contains_shellfish: searchParams.get("shellfish") === "true",
     contains_sesame: searchParams.get("sesame") === "true",
+    is_heart_healthy: false,
     serving_size_amount: searchParams.get("servingAmount") ?? undefined,
     serving_size_unit: searchParams.get("servingUnit") ?? undefined,
   }))
