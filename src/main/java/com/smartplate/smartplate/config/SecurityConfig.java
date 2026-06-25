@@ -11,6 +11,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
 import com.smartplate.smartplate.auth.JwtFilter;
 
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/menu/**").permitAll()
                 .requestMatchers("/api/v1/recommendations/**").permitAll()
                 .requestMatchers("/api/v1/events/**").permitAll()
+                .requestMatchers("/api/v1/users/**").permitAll()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);

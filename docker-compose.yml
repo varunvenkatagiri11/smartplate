@@ -67,6 +67,7 @@ services:
       SPRING_REDIS_HOST:          redis
       SPRING_REDIS_PORT:          6379
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ML_RERANKER_URL: http://ml:8000
     ports:
       - "8080:8080"
     depends_on:
@@ -90,6 +91,23 @@ services:
 
   # One-shot sync job — runs on startup then exits
   # In production, replace with a cron job or Spring @Scheduled
+  ml:
+    build: ./ml
+    ports:
+      - "8001:8000"
+    environment:
+      DATABASE_URL: postgresql://smartplate:smartplate@postgres:5432/smartplate
+      MODEL_PATH: /app/model.pkl
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
   sync:
     build:
       context: .

@@ -49,3 +49,7 @@ logging:
     org.springframework.data.redis: WARN
 jwt:
   secret: smartplate-secret-key-change-in-production-min-32-chars
+
+ml:
+  reranker:
+    url: ${ML_RERANKER_URL:http://localhost:8001}

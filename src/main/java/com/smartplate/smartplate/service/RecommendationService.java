@@ -3,37 +3,24 @@ package com.smartplate.smartplate.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
 
 import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-/**
- * Recommendation engine — three endpoints:
- *
- *  1. getTrending(hallId, daypart, limit)
- *     → ZREVRANGE trending:{hallId}:{daypart}  — pure Redis, <5ms
- *
- *  2. getSimilar(itemId, hallId, limit)
- *     → ZREVRANGE cooccur:{itemId} + availability filter
- *
- *  3. getForYou(userId, hallId, daypart, limit)
- *     → Blend: co-occurrence (0.5) + nutrition cosine (0.3) + trending (0.2)
- *     → Hard filter: dietary prefs + today's availability
- *     → Cold-start fallback: getTrending()
- *     → Cached in recs:foryou:{userId} with 2-min TTL
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RecommendationService {
 
-    private static final int    COLD_START_THRESHOLD = 3;    // interactions before personalization
-    private static final int    SESSION_LOOKBACK      = 10;   // items to drive co-occurrence lookup
+    private static final int    COLD_START_THRESHOLD = 3;
+    private static final int    SESSION_LOOKBACK      = 10;
     private static final double W_COOCCUR   = 0.5;
     private static final double W_NUTRITION = 0.3;
     private static final double W_TRENDING  = 0.2;
@@ -41,6 +28,9 @@ public class RecommendationService {
     private final RedisTemplate<String, String> redis;
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
+
+    @Value("${ml.reranker.url:http://localhost:8001}")
+    private String rerankerUrl;
 
     // ── 1. Trending ──────────────────────────────────────────────────────────
 
@@ -66,7 +56,6 @@ public class RecommendationService {
     // ── 3. For You ───────────────────────────────────────────────────────────
 
     public List<Map<String, Object>> getForYou(int userId, int hallId, int daypart, int limit) {
-        // Check Redis cache first
         String cacheKey = "recs:foryou:" + userId;
         String cached   = redis.opsForValue().get(cacheKey);
         if (cached != null) {
@@ -75,7 +64,6 @@ public class RecommendationService {
             } catch (Exception ignored) {}
         }
 
-        // Cold-start check
         int interactionCount = countInteractions(userId);
         List<Map<String, Object>> result;
 
@@ -84,7 +72,6 @@ public class RecommendationService {
         } else {
             result = buildPersonalized(userId, hallId, daypart, limit);
             if (result.size() < limit) {
-                // Backfill with trending
                 List<Map<String, Object>> trending = getTrending(hallId, daypart, limit - result.size());
                 Set<Object> seen = result.stream().map(m -> m.get("id")).collect(Collectors.toSet());
                 trending.stream()
@@ -93,7 +80,6 @@ public class RecommendationService {
             }
         }
 
-        // Cache for 2 minutes
         try {
             redis.opsForValue().set(cacheKey, objectMapper.writeValueAsString(result), 2, TimeUnit.MINUTES);
         } catch (Exception ignored) {}
@@ -102,11 +88,10 @@ public class RecommendationService {
     }
 
     private List<Map<String, Object>> buildPersonalized(int userId, int hallId, int daypart, int limit) {
-        // Step 1: get user's recently liked items from session
         List<String> sessionItems = getSession(userId);
         if (sessionItems.isEmpty()) return getTrending(hallId, daypart, limit);
 
-        // Step 2: gather co-occurrence candidates
+        // Gather co-occurrence candidates with scores
         Map<String, Double> cooccurScores = new HashMap<>();
         for (String seedItemId : sessionItems.subList(0, Math.min(SESSION_LOOKBACK, sessionItems.size()))) {
             Set<org.springframework.data.redis.core.ZSetOperations.TypedTuple<String>> neighbors =
@@ -121,40 +106,109 @@ public class RecommendationService {
 
         if (cooccurScores.isEmpty()) return getTrending(hallId, daypart, limit);
 
-        // Step 3: filter to today's available items at this hall
         List<String> candidates = filterAvailableToday(new ArrayList<>(cooccurScores.keySet()), hallId);
         candidates = deduplicate(candidates, sessionItems);
         candidates = applyDietaryFilter(candidates, userId);
 
         if (candidates.isEmpty()) return getTrending(hallId, daypart, limit);
 
-        // Step 4: normalize co-occurrence scores
         double maxCooccur = cooccurScores.values().stream().mapToDouble(Double::doubleValue).max().orElse(1.0);
-
-        // Step 5: get user's average macro profile for nutrition similarity
         double[] userMacros = getUserMacroProfile(userId);
-
-        // Step 6: get trending scores for this hall/daypart
         Map<String, Double> trendingScores = getTrendingScores(hallId, daypart, candidates);
         double maxTrend = trendingScores.values().stream().mapToDouble(Double::doubleValue).max().orElse(1.0);
 
-        // Step 7: blend scores
+        // Blend scores and rank
         Map<String, Double> blended = new HashMap<>();
         for (String candidateId : candidates) {
-            double coScore  = (cooccurScores.getOrDefault(candidateId, 0.0) / maxCooccur) * W_COOCCUR;
-            double nutrScore = getNutritionSimilarity(Integer.parseInt(candidateId), userMacros) * W_NUTRITION;
+            double coScore    = (cooccurScores.getOrDefault(candidateId, 0.0) / maxCooccur) * W_COOCCUR;
+            double nutrScore  = getNutritionSimilarity(Integer.parseInt(candidateId), userMacros) * W_NUTRITION;
             double trendScore = (trendingScores.getOrDefault(candidateId, 0.0) / Math.max(maxTrend, 1.0)) * W_TRENDING;
             blended.put(candidateId, coScore + nutrScore + trendScore);
         }
 
-        // Step 8: sort and hydrate top N
         List<String> ranked = blended.entrySet().stream()
             .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
-            .limit(limit)
+            .limit(limit * 2L)   // fetch extra so reranker has more to work with
             .map(Map.Entry::getKey)
             .collect(Collectors.toList());
 
-        return hydrateItems(ranked, hallId);
+        List<Map<String, Object>> hydrated = hydrateItems(ranked, hallId);
+
+        // Attach runtime signals needed by the reranker
+        for (int i = 0; i < hydrated.size(); i++) {
+            Map<String, Object> item = hydrated.get(i);
+            String itemId = String.valueOf(item.get("id"));
+            item.put("upstream_rank",   i);
+            item.put("cooccur_score",   cooccurScores.getOrDefault(itemId, 0.0));
+            item.put("trending_score",  trendingScores.getOrDefault(itemId, 0.0));
+            item.put("item_global_avg_rating", getGlobalAvgRating(Integer.parseInt(itemId)));
+        }
+
+        List<Map<String, Object>> reranked = callReranker(hydrated, userId);
+        return reranked.stream().limit(limit).collect(Collectors.toList());
+    }
+
+    // ── ML reranker ──────────────────────────────────────────────────────────
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> callReranker(List<Map<String, Object>> candidates, int userId) {
+        try {
+            Map<String, Object> userProfile = buildUserProfile(userId);
+
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("candidates",    candidates);
+            body.put("user_profile",  userProfile);
+
+            RestClient client = RestClient.create();
+            Map<String, Object> response = client.post()
+                .uri(rerankerUrl + "/rerank")
+                .header("Content-Type", "application/json")
+                .body(objectMapper.writeValueAsString(body))
+                .retrieve()
+                .body(Map.class);
+
+            if (response != null && response.containsKey("items")) {
+                return (List<Map<String, Object>>) response.get("items");
+            }
+        } catch (Exception e) {
+            log.warn("Reranker unavailable ({}), using upstream order", e.getMessage());
+        }
+        return candidates;
+    }
+
+    private Map<String, Object> buildUserProfile(int userId) {
+        Map<String, Object> profile = new HashMap<>();
+        try {
+            Map<String, Object> prefs = jdbc.queryForMap(
+                "SELECT pref_vegan, pref_meatless, pref_halal, pref_gluten_free FROM users WHERE id = ?", userId);
+            profile.putAll(prefs);
+        } catch (Exception ignored) {}
+
+        try {
+            Map<String, Object> macros = jdbc.queryForMap("""
+                SELECT AVG(mi.calories)  AS avg_calories,
+                       AVG(mi.g_protein) AS avg_protein,
+                       AVG(mi.g_carbs)   AS avg_carbs,
+                       AVG(mi.g_fat)     AS avg_fat
+                FROM events e
+                JOIN menu_items mi ON mi.id = e.item_id
+                WHERE e.user_id = ? AND e.event_type IN ('favorite', 'rate')
+                """, userId);
+            profile.putAll(macros);
+        } catch (Exception ignored) {}
+
+        return profile;
+    }
+
+    private double getGlobalAvgRating(int itemId) {
+        try {
+            Double avg = jdbc.queryForObject(
+                "SELECT AVG(rating_value) FROM events WHERE item_id = ? AND event_type = 'rate' AND rating_value IS NOT NULL",
+                Double.class, itemId);
+            return avg == null ? 0.0 : avg;
+        } catch (Exception e) {
+            return 0.0;
+        }
     }
 
     // ── Nutrition cosine similarity ──────────────────────────────────────────
@@ -177,7 +231,6 @@ public class RecommendationService {
     }
 
     private double[] getUserMacroProfile(int userId) {
-        // Average macros of items the user has rated ≥ 3.5 or favorited
         try {
             Map<String, Object> row = jdbc.queryForMap("""
                 SELECT AVG(mi.g_protein) AS p, AVG(mi.g_carbs) AS c,
@@ -291,7 +344,6 @@ public class RecommendationService {
         if (itemIds.isEmpty()) return List.of();
         List<Map<String, Object>> result = new ArrayList<>();
         for (String id : itemIds) {
-            // Try Redis cache first
             String cached = redis.opsForValue().get("item:hot:" + id);
             if (cached != null) {
                 try {
@@ -299,7 +351,6 @@ public class RecommendationService {
                     continue;
                 } catch (Exception ignored) {}
             }
-            // Fallback to Postgres
             try {
                 Map<String, Object> row = jdbc.queryForMap("""
                     SELECT mi.id, mi.name, s.display_name AS station,
@@ -314,7 +365,7 @@ public class RecommendationService {
                     WHERE mi.id = ?
                     LIMIT 1
                     """, hallId, Integer.parseInt(id));
-                result.add(row);
+                result.add(new HashMap<>(row));   // mutable copy so callers can add extra fields
             } catch (Exception e) {
                 log.warn("Failed to hydrate item {}: {}", id, e.getMessage());
             }
