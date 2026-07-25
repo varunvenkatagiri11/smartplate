@@ -30,7 +30,7 @@ EVENT_WEIGHTS = {
 }
 
 
-def load_training_data(db_url: str) -> pd.DataFrame:
+def load_training_data(db_url: str, min_user_id: int, max_user_id: int) -> pd.DataFrame:
     conn = psycopg2.connect(db_url)
     cur  = conn.cursor()
 
@@ -51,8 +51,9 @@ def load_training_data(db_url: str) -> pd.DataFrame:
             WHERE event_type = 'rate' AND rating_value IS NOT NULL
             GROUP BY item_id
         ) r ON r.item_id = e.item_id
+        WHERE u.id BETWEEN %s AND %s
         ORDER BY e.user_id, e.created_at
-    """)
+    """, (min_user_id, max_user_id))
     rows = cur.fetchall()
     cols = [d[0] for d in cur.description]
     cur.close()
@@ -70,9 +71,9 @@ def compute_label(row) -> int:
     return weights.get(etype, 0)
 
 
-def train(db_url: str, output_path: str):
+def train(db_url: str, output_path: str, min_user_id: int = 0, max_user_id: int = 999999):
     print("Loading training data…")
-    df = load_training_data(db_url)
+    df = load_training_data(db_url, min_user_id, max_user_id)
     if df.empty:
         print("No training data found — need at least some events in the DB.")
         return
@@ -155,5 +156,7 @@ if __name__ == "__main__":
     parser.add_argument("--db", default=os.getenv("DATABASE_URL",
                         "postgresql://smartplate:smartplate@localhost:5432/smartplate"))
     parser.add_argument("--output", default="model.pkl")
+    parser.add_argument("--min-user-id", type=int, default=0)
+    parser.add_argument("--max-user-id", type=int, default=999999)
     args = parser.parse_args()
-    train(args.db, args.output)
+    train(args.db, args.output, args.min_user_id, args.max_user_id)
